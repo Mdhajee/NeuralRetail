@@ -1,0 +1,8 @@
+mlruns/
+models/
+outputs/
+data/
+*.db
+__pycache__/
+.env
+.ipynb_checkpoints/
