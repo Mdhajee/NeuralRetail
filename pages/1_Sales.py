@@ -1,55 +1,52 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
+import plotly.express as px
 from pathlib import Path
-import os
 
-# ── Page config ───────────────────────────────────────
-st.set_page_config(
-    page_title="NeuralRetail",
-    page_icon="🛒",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+st.set_page_config(page_title="Sales", layout="wide")
+st.title("📊 Sales Dashboard")
 
-# ── Find project root ─────────────────────────────────
-HERE = Path(__file__).parent.parent   # streamlit_app/ → NeuralRetail/
-DATA_PROC = HERE / 'data' / 'processed'
-OUTPUTS   = HERE / 'outputs'
+DATA_SAMPLE = Path(__file__).parent.parent / "data_sample"
 
-# ── Shared data loader (cached — loads once) ──────────
 @st.cache_data
-def load_all_data():
-    events      = pd.read_parquet(DATA_PROC / 'events_clean.parquet')
-    segments    = pd.read_parquet(DATA_PROC / 'segments.parquet')
-    churn       = pd.read_parquet(DATA_PROC / 'churn_scores.parquet')
-    inventory   = pd.read_parquet(DATA_PROC / 'inventory_optimised.parquet')
-    forecast    = pd.read_parquet(DATA_PROC / 'forecast_output.parquet')
-    item_pop    = pd.read_parquet(DATA_PROC / 'item_popularity.parquet')
-    return events, segments, churn, inventory, forecast, item_pop
+def load():
+    events   = pd.read_parquet(DATA_SAMPLE / "events_clean.parquet")
+    item_pop = pd.read_parquet(DATA_SAMPLE / "item_popularity.parquet")
+    return events, item_pop
 
-# ── Landing page ──────────────────────────────────────
-st.title("🛒 NeuralRetail — AI Sales Intelligence")
-st.markdown("""
-**An end-to-end AI-powered retail analytics platform built on RetailRocket clickstream data.**
+events, item_pop = load()
 
-Navigate using the sidebar to explore:
-- 📊 **Sales Dashboard** — event volume, daily trends, top items
-- 👥 **Customer Dashboard** — RFM segments, churn risk scores
-- 📈 **Forecast Dashboard** — Prophet demand forecasts
-- 📦 **Inventory Dashboard** — EOQ, safety stock, reorder alerts
-""")
+views     = events[events['event']=='view']
+carts     = events[events['event']=='addtocart']
+purchases = events[events['event']=='transaction']
+
+c1,c2,c3,c4 = st.columns(4)
+c1.metric("Total Views",    f"{len(views):,}")
+c2.metric("Cart Additions", f"{len(carts):,}")
+c3.metric("Purchases",      f"{len(purchases):,}")
+c4.metric("Conversion",     f"{len(purchases)/max(len(views),1)*100:.2f}%")
 
 st.divider()
+st.subheader("Daily Event Volume")
+daily = events.groupby(['date','event']).size().reset_index(name='count')
+daily['date'] = pd.to_datetime(daily['date'])
+fig = px.line(daily, x='date', y='count', color='event',
+              color_discrete_map={'view':'#185FA5',
+                                  'addtocart':'#F7941D',
+                                  'transaction':'#0F6E56'})
+st.plotly_chart(fig, use_container_width=True)
 
-# KPI summary on landing page
-events, segments, churn, inventory, forecast, item_pop = load_all_data()
-
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Total Events",      f"{len(events):,}")
-col2.metric("Unique Visitors",   f"{events['visitorid'].nunique():,}")
-col3.metric("Unique Items",      f"{events['itemid'].nunique():,}")
-col4.metric("Segments",          f"{segments['segment'].nunique()}")
-
-st.divider()
-st.caption("NeuralRetail · Amdox Technologies · 2026")
+col1, col2 = st.columns(2)
+with col1:
+    st.subheader("Conversion Funnel")
+    funnel = pd.DataFrame({'Stage':['Views','Carts','Purchases'],
+                           'Count':[len(views),len(carts),len(purchases)]})
+    st.plotly_chart(px.funnel(funnel,x='Count',y='Stage'),
+                   use_container_width=True)
+with col2:
+    st.subheader("Top 10 Items")
+    top10 = item_pop.nlargest(10,'total_events')
+    fig2  = px.bar(top10,x='total_events',
+                   y=top10['itemid'].astype(str),orientation='h')
+    fig2.update_layout(yaxis=dict(autorange='reversed'))
+    st.plotly_chart(fig2, use_container_width=True)
